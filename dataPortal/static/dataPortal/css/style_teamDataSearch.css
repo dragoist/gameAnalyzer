@@ -1,0 +1,10 @@
+.form-field{
+    display: inline-block;
+    margin-right: 10px;
+}
+
+.input-small{
+    width: 100px;
+    height: 20px;
+    font-size: 12px;
+}

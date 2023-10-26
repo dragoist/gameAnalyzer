@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <link rel="stylesheet" type="text/css" href="{% static 'dataPortal/css/style_teamDataSearch.css' %}">
+</head>
+<body>
+    {% load widget_tweaks %}
+    <h2>Team Data Search</h2>
+    <form method="post">
+        {% csrf_token %}
+        {% for field in form %}
+        <div class="form-field">
+            {{ field.label_tag }}
+            {{ field|add_class:"input-small" }}
+        </div>
+        {% endfor %}
+        <button type="submit">Search</button>
+    </form>
+
+    <h3>Results:</h3>
+    <table>
+        <tr>
+            <th>Date</th>
+            <th>Patch</th>
+            <th>Winner</th>
+            <!-- Altri campi della tabella dei match competitivi -->
+        </tr>
+        {% for match in matches %}
+            <tr>
+                <td>{{ match.date }}</td>
+                <td>{{ match.patch }}</td>
+                <td>{{ match.winnerTeam }}</td>
+                <!-- Altri campi dei match competitivi -->
+            </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
