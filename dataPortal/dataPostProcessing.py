@@ -138,7 +138,9 @@ def getTeamTimestampData(gameIDs:list):
             avg_assists=Avg('assists'),
             avg_gold=Avg('gold'),
             avg_minions=Avg('minions'),
-            avg_exp=Avg('exp')
+            avg_exp=Avg('exp'),
+            goldDiff=Avg(F('gold') - F('opponent__gold'), output_field=FloatField()),
+            expDiff=Avg(F('exp') - F('opponent__exp'), output_field=FloatField())
         )
     timeStampData = defaultdict(
         lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict())))))
@@ -157,7 +159,9 @@ def getTeamTimestampData(gameIDs:list):
             'avg_assists': entry['avg_assists'],
             'avg_gold': entry['avg_gold'],
             'avg_minions': entry['avg_minions'],
-            'avg_exp': entry['avg_exp']
+            'avg_exp': entry['avg_exp'],
+            f'goldDiff@{time}': entry['goldDiff'],
+            f'expDiff@{time}': entry['expDiff']
         }
     return timeStampData
 
@@ -257,7 +261,7 @@ def getTeamHeraldInfo(gameIDs:list):
 
 def getBaronInfo(gameIDs:list):
     baronData = {}
-    baronCount = Barons.objects.filter(gameID__gameID__in=gameIDs).values('team__triCode', 'side').annotate(count=Count('id'))
+    baronCount = Barons.objects.filter(gameID__gameID__in=gameIDs).values('team__triCode', 'side').annotate(barons=Count('id'))
 
     for baron in baronCount:
         team = baron['team__triCode']
@@ -274,25 +278,76 @@ def getBaronInfo(gameIDs:list):
 
 def getTeamFirstBloodInfo(gameIDs:list):
     firstBloodData = {}
-    for side in ["B", "R"]:
-        querySetTot = FirstBlood.objects.filter(gameID__gameID__in=gameIDs, side=side).values('team__triCode').annotate(count=Count('gameID'))
-        querySetTime = FirstBlood.objects.filter(gameID__gameID__in=gameIDs, side=side).values('team__triCode').annotate(avgTime=Avg('time'))
-        for query1, query2 in zip(querySetTot, querySetTime):
-            firstBloodData[query1.team__triCode][side] = {
-                'firstBloodPercentage': (query1.count/gameIDs.count())*100,
-                'avgTime': query2.avg,
-            }
+
+    firstBloodCount = FirstBlood.objects.filter(gameID__gameID__in=gameIDs).values('team__triCode', 'side').annotate(
+        totalFirstBlood=Count('id'))
+    firstBloodAvgTime = FirstBlood.objects.filter(gameID__gameID__in=gameIDs).values('team__triCode', 'side').annotate(
+        avgTime=Avg('time'))
+    for fb in firstBloodCount:
+        team = fb['team__triCode']
+        side = fb['side']
+        totalFirstBlood = fb['totalFirstBlood']
+
+        totalGames = len(gameIDs)
+        firstBloodRate = (totalFirstBlood/totalGames)*100
+
+        if team not in firstBloodData:
+            firstBloodData[team]={}
+        if side not in firstBloodData[team]:
+            firstBloodData[team][side]['firstBloodRate']=firstBloodRate
+
+    for fb in firstBloodAvgTime:
+        team = fb['team__triCode']
+        side = fb['side']
+
+        if team not in firstBloodData:
+            firstBloodData[team] = {}
+        if side not in firstBloodData[team]:
+            firstBloodData[team][side]['avgTime'] = fb['avgTime']
 
     return firstBloodData
 
 
 def getTeamTowersInfo(gameIDs:list):
     turretData = {}
-    for side in ["B", "R"]:
-        for lane in ["top", "mid", "bot"]:
-            querySetTot = Towers.objects.filter(gameID__gameID__in=gameIDs, side=side, lane=lane).values('team__triCode').annotate(count=Count('gameID'))
-            for query in querySetTot:
-                turretData[query.team__triCode][side][lane] = query.count
+
+    towerCounts = Towers.objects.filter(gameID__gameID__in=gameIDs).values('team__triCode', 'side', 'lane').annotate(towerCount=Count('id'))
+    firstTowerTime = Towers.objects.filter(gameID__gameID__in=gameIDs, first=True).values('team__triCode', 'side', 'lane').annotate(avgTime=Avg('time'))
+
+    result = towerCounts.values('team__triCode', 'side', 'lane', 'towerCount').annotate(
+        firstTowerRate=F(Count('first'))/F('towerCount')
+    )
+
+    for entry in result:
+        team = entry['team__triCode']
+        side = entry['side']
+        lane = entry['lane']
+
+        if team not in turretData:
+            turretData[team]={}
+        if side not in turretData[team]:
+            turretData[team][side]={}
+        if lane not in turretData[team][side]:
+            turretData[team][side][lane] = {}
+            turretData[team][side][lane]['firstTowerStats'] = {}
+        if lane in turretData[team][side]:
+            turretData[team][side][lane]['towerCount'] = entry['towerCount']
+            turretData[team][side][lane]['firstTowerStats']['firstTowerRate'] = entry['firstTowerRate']
+
+    for entry in firstTowerTime:
+        team = entry['team__triCode']
+        side = entry['side']
+        lane = entry['lane']
+
+        if team not in turretData:
+            turretData[team] = {}
+        if side not in turretData[team]:
+            turretData[team][side] = {}
+        if lane not in turretData[team][side]:
+            turretData[team][side][lane] = {}
+            turretData[team][side][lane]['firstTowerStats'] = {}
+        if lane in turretData[team][side]:
+            turretData[team][side][lane]['firstTowerStats']['avgTime'] = entry['avgTime']
 
     return turretData
 
@@ -300,11 +355,29 @@ def getTeamTowersInfo(gameIDs:list):
 def getTeamPlatesInfo(gameIDs:list):
     platesData = {}
 
-    for side in ["B", "R"]:
-        for lane in ["top", "mid", "bot"]:
-            querySetTot = Plates.objects.filter(gameID__gameID__in=gameIDs, side=side, lane=lane).values('team__triCode').annotate(count=Count('gameID'))
-            for query in querySetTot:
-                platesData[query.team__triCode][side][lane] = query.count
+    platesCountLane = Plates.objects.filter(gameID__gameID__in=gameIDs).values('team__triCode', 'side', 'lane').annotate(count=Count('id'))
+    platesCountSide = Plates.objects.filter(gameID__gameID__in=gameIDs).values('team__triCode', 'side').annotate(count=Count('id'))
+    for entry in platesCountLane:
+        team = entry['team__triCode']
+        side = entry['side']
+        lane = entry['lane']
+
+        if team not in platesData:
+            platesData[team] = {}
+        if side not in platesData[team]:
+            platesData[team][side] = {}
+        if lane not in platesData[team][side]:
+            platesData[team][side][lane] = entry['count']/len(gameIDs) #plates per game per lane
+
+    for entry in platesCountSide:
+        team = entry['team__triCode']
+        side = entry['side']
+
+        if team not in platesData:
+            platesData[team] = {}
+        if side not in platesData[team]:
+            platesData[team][side] = {}
+            platesData[team][side]['avgCountPerGame'] = entry['count']/len(gameIDs) #plates per game
 
     return platesData
 

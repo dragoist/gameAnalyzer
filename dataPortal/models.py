@@ -158,5 +158,6 @@ class Towers(models.Model):
     lane = models.CharField(max_length=16, choices=(('bot', 'botlane'), ('mid', 'midlane'), ('top', 'toplane'),))
     killer = models.ForeignKey(Player, on_delete=models.CASCADE)
     assistants = models.JSONField(blank=True, null=True)
+    first = models.BooleanField()
     time = models.DurationField()
 
