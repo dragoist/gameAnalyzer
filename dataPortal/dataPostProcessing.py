@@ -1,6 +1,6 @@
 from collections import defaultdict
-from .models import Game, Teams, Player, PlayerEndGameStats, PlayerTimeData, Draft, Drakes, Heralds, Barons, FirstBlood, Plates, Towers
-from django.db.models import Q, Count, Avg, ExpressionWrapper, F, FloatField, OuterRef, Subquery
+from .models import Game, PlayerEndGameStats, PlayerTimeData, Draft, Drakes, Heralds, Barons, FirstBlood, Plates, Towers
+from django.db.models import Q, Count, Avg, ExpressionWrapper, F, FloatField
 from .forms import CommonDataSearchForm
 
 def teamDataSearch(form:CommonDataSearchForm):
@@ -26,74 +26,145 @@ def teamDataSearch(form:CommonDataSearchForm):
     for game in matches:
         gameIDs.append(game.gameID)
 
-    draftData = getDraftData(gameIDs)
-    endData = getEndGameDataStats(gameIDs)
-    timeStampData = getTeamTimestampData(gameIDs)
+    draftData = getDraftData(gameIDs, role)
+    endData = getEndGameDataStats(gameIDs, role)
+    timeStampData = getTeamTimestampData(gameIDs, role)
     drakeData = getTeamDrakeInfo(gameIDs)
+    heraldData = getTeamHeraldInfo(gameIDs)
+    baronData = getBaronInfo(gameIDs)
+    firstBloodData = getTeamFirstBloodInfo(gameIDs)
+    towersData = getTeamTowersInfo(gameIDs)
+    platesData = getTeamPlatesInfo(gameIDs)
+
+    teamData = {
+        'yourSearch': {'patchSearched': patch, 'competitionSearched': competition, 'teamSearched': team,
+                       'roleSearched': role, 'playerSearched': player},
+        'draft': draftData,
+        'end': endData,
+        'timeStamp': timeStampData,
+        'drakes': drakeData,
+        'heralds': heraldData,
+        'barons': baronData,
+        'firstBlood': firstBloodData,
+        'towers': towersData,
+        'plates': platesData,
+    }
+
+    return teamData
 
 
-def getDraftData(gameIDs:list):
+def getDraftData(gameIDs: list, roleSearched: str):
     draft_stats = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(int))))
-
-    drafts = Draft.objects.filter(gameID__gameID__in=gameIDs)
-    for draft in drafts:
-        side = draft['side']
-        team = draft['team']
-        for i in range(1, 6):  # Itera su ban1, ban2, ban3, ban4, ban5
-            champion = draft[f'ban{i}']
-            draft_stats[side][team][f'ban{i}'][champion] += 1
-        for i in range(1, 6):
-            champion = draft[f'pick{i}']
-            draft_stats[side][team][f'pick{i}'][champion] += 1
-        for i in ['top', 'jgl', 'mid', 'bot', 'sup']:
-            champion = draft[i]
-            draft_stats[side][team][i][champion] += 1
+    if roleSearched.lower() == 'any':
+        '''
+        Gets draft data of all the roles and teams involved in the games, divided by side and by team
+        '''
+        drafts = Draft.objects.filter(gameID__gameID__in=gameIDs)
+        for draft in drafts:
+            side = draft['side']
+            team = draft['team']
+            for i in range(1, 6):  # Itera su ban1, ban2, ban3, ban4, ban5
+                champion = draft[f'ban{i}']
+                draft_stats[side][team][f'ban{i}'][champion] += 1
+            for i in range(1, 6):
+                champion = draft[f'pick{i}']
+                draft_stats[side][team][f'pick{i}'][champion] += 1
+            for i in ['top', 'jgl', 'mid', 'bot', 'sup']:
+                champion = draft[i]
+                draft_stats[side][team][i][champion] += 1
+    else:
+        drafts = Draft.objects.filter(gameID__gameID__in=gameIDs)
+        for draft in drafts:
+            side = draft['side']
+            team = draft['team']
+            champion = draft[roleSearched]
+            draft_stats[side][team][roleSearched][champion] += 1
 
     return draft_stats
 
 
-def getEndGameDataStats(gameIDs: list):
+def getEndGameDataStats(gameIDs: list, roleSearched: str):
     endGameStats = {}
-    endgameAvgData = (
-        PlayerEndGameStats.objects.filters(gameID__gameID__in=gameIDs).values('team__triCode', 'side', 'role',
-                                                                      'player__summonerName')
-        .annotate(
-            avg_kills=Avg('kills'),
-            avg_deaths=Avg('deaths'),
-            avg_assists=Avg('assists'),
-            avg_gold=Avg('gold'),
-            avg_minions=Avg('minions'),
-            avg_wardPlaced=Avg('wardPlaced'),
-            avg_wardKilled=Avg('wardKilled'),
-            avg_visionScore=Avg('visionScore'),
-            avg_DMGtoChamps=Avg('DMGtoChamps'),
-            avg_DMGtoTowers=Avg('DMGtoTowers'),
+    if roleSearched.lower() == 'any':
+        endgameAvgData = (
+            PlayerEndGameStats.objects.filters(gameID__gameID__in=gameIDs).values('team__triCode', 'side', 'role',
+                                                                                  'player__summonerName')
+            .annotate(
+                avg_kills=Avg('kills'),
+                avg_deaths=Avg('deaths'),
+                avg_assists=Avg('assists'),
+                avg_gold=Avg('gold'),
+                avg_minions=Avg('minions'),
+                avg_wardPlaced=Avg('wardPlaced'),
+                avg_wardKilled=Avg('wardKilled'),
+                avg_visionScore=Avg('visionScore'),
+                avg_DMGtoChamps=Avg('DMGtoChamps'),
+                avg_DMGtoTowers=Avg('DMGtoTowers'),
+            )
         )
-    )
 
-    endgameAvgData = endgameAvgData.annotate(
-        KDA=ExpressionWrapper(
-            (F('avg_kills') + F('avg_assists')) / F('avg_deaths'),
-            output_field=FloatField()
-        ),
-        GPM=ExpressionWrapper(
-            F('avg_gold') / (F('gameID__gameLength').total_seconds() / 60),
-            output_field=FloatField()
-        ),
-        CSPM=ExpressionWrapper(
-            F('avg_minions') / (F('gameID__gameLength').total_seconds() / 60),
-            output_field=FloatField()
-        ),
-        VSPM=ExpressionWrapper(
-            F('avg_visionScore') / (F('gameID__gameLength').total_seconds() / 60),
-            output_field=FloatField()
-        ),
-        DPM=ExpressionWrapper(
-            F('avg_DMGtoChamps') / (F('gameID__gameLength').total_seconds() / 60),
-            output_field=FloatField()
+        endgameAvgData = endgameAvgData.annotate(
+            KDA=ExpressionWrapper(
+                (F('avg_kills') + F('avg_assists')) / F('avg_deaths'),
+                output_field=FloatField()
+            ),
+            GPM=ExpressionWrapper(
+                F('avg_gold') / (F('gameID__gameLength').total_seconds() / 60),
+                output_field=FloatField()
+            ),
+            CSPM=ExpressionWrapper(
+                F('avg_minions') / (F('gameID__gameLength').total_seconds() / 60),
+                output_field=FloatField()
+            ),
+            VSPM=ExpressionWrapper(
+                F('avg_visionScore') / (F('gameID__gameLength').total_seconds() / 60),
+                output_field=FloatField()
+            ),
+            DPM=ExpressionWrapper(
+                F('avg_DMGtoChamps') / (F('gameID__gameLength').total_seconds() / 60),
+                output_field=FloatField()
+            )
         )
-    )
+    else:
+        endgameAvgData = (
+            PlayerEndGameStats.objects.filters(gameID__gameID__in=gameIDs, role=roleSearched.lower()).values('team__triCode',
+                                                                                 'side', 'role', 'player__summonerName')
+            .annotate(
+                avg_kills=Avg('kills'),
+                avg_deaths=Avg('deaths'),
+                avg_assists=Avg('assists'),
+                avg_gold=Avg('gold'),
+                avg_minions=Avg('minions'),
+                avg_wardPlaced=Avg('wardPlaced'),
+                avg_wardKilled=Avg('wardKilled'),
+                avg_visionScore=Avg('visionScore'),
+                avg_DMGtoChamps=Avg('DMGtoChamps'),
+                avg_DMGtoTowers=Avg('DMGtoTowers'),
+            )
+        )
 
+        endgameAvgData = endgameAvgData.annotate(
+            KDA=ExpressionWrapper(
+                (F('avg_kills') + F('avg_assists')) / F('avg_deaths'),
+                output_field=FloatField()
+            ),
+            GPM=ExpressionWrapper(
+                F('avg_gold') / (F('gameID__gameLength').total_seconds() / 60),
+                output_field=FloatField()
+            ),
+            CSPM=ExpressionWrapper(
+                F('avg_minions') / (F('gameID__gameLength').total_seconds() / 60),
+                output_field=FloatField()
+            ),
+            VSPM=ExpressionWrapper(
+                F('avg_visionScore') / (F('gameID__gameLength').total_seconds() / 60),
+                output_field=FloatField()
+            ),
+            DPM=ExpressionWrapper(
+                F('avg_DMGtoChamps') / (F('gameID__gameLength').total_seconds() / 60),
+                output_field=FloatField()
+            )
+        )
     for stats in endgameAvgData:
         team = stats['team__triCode']
         side = stats['side']
@@ -127,7 +198,7 @@ def getEndGameDataStats(gameIDs: list):
     return endGameStats
 
 
-def getTeamTimestampData(gameIDs:list):
+def getTeamTimestampData(gameIDs:list, roleSearched: str):
     player_data = PlayerTimeData.objects.filter(gameID__gameID__in=gameIDs).values('side', 'team__triCode', 'role',
                                                                                 'player__summonerName', 'champ', 'time')
 
@@ -149,6 +220,9 @@ def getTeamTimestampData(gameIDs:list):
         side = entry['side']
         team = entry['team__triCode']
         role = entry['role']
+        if roleSearched.lower() != 'any':
+            if role.lower() != roleSearched.lower():
+                continue
         player = entry['player__summonerName']
         champ = entry['champ']
         time = entry['time']
@@ -380,4 +454,3 @@ def getTeamPlatesInfo(gameIDs:list):
             platesData[team][side]['avgCountPerGame'] = entry['count']/len(gameIDs) #plates per game
 
     return platesData
-
