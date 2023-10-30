@@ -24,7 +24,7 @@ def match_search(request):
     if request.method == 'POST':
         form = CommonDataSearchForm(request.POST)
         if form.is_valid():
-            teamDataSearch(form)
+            teamSearchData = teamDataSearch(form)
 
             '''
             ricerca dei match e passaggio dei risultati al template come variabili di contesto
